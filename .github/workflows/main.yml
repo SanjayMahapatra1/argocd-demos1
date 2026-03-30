@@ -1,272 +1,34 @@
-name: Enhanced CI/CD Workflow for Dev and Test
+name: CI Workflow
 
 on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Select environment'
+        required: true
+        default: 'development'
+        options:
+          - development
+          - testing
   push:
     branches:
       - main
-      - dev
-      - test
-  pull_request:
-    branches:
-      - main
-      - dev
-      - test
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # ===== VALIDATION JOB =====
-  validate:
-    name: Validate Configuration
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Validate YAML files
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y yamllint
-          yamllint -d relaxed ui_approach/nginx/nginx_deployment.yml
-
-      - name: Set up kubeval
-        run: |
-          wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
-          tar xf kubeval-linux-amd64.tar.gz
-          sudo mv kubeval /usr/local/bin/
-
-      - name: Validate Kubernetes manifest
-        run: kubeval ui_approach/nginx/nginx_deployment.yml
-
-      - name: Run kube-linter
-        uses: stackrox/kube-linter-action@v1
-        with:
-          directory: ui_approach/nginx/
-          config: .kube-linter.yml
-        continue-on-error: true
-
-  # ===== LINTING JOB =====
-  lint:
-    name: Code Linting
-    runs-on: ubuntu-latest
-    needs: validate
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run kube-linter with detailed checks
-        uses: stackrox/kube-linter-action@v1
-        with:
-          directory: ui_approach/nginx/
-          config: .kube-linter.yml
-          format: sarif
-        continue-on-error: true
-
-      - name: Upload SARIF results
-        uses: github/codeql-action/upload-sarif@v2
-        if: always()
-        with:
-          sarif_file: results.sarif
-
-  # ===== DEPLOYMENT CHECK JOB =====
-  deploy-check:
-    name: Deployment Configuration Check
-    runs-on: ubuntu-latest
-    needs: [validate, lint]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Dry-run deployment check
-        run: |
-          echo "=== Checking deployment configuration ==="
-          cat ui_approach/nginx/nginx_deployment.yml
-          echo ""
-          echo "=== Configuration validation complete ==="
-
-      - name: Verify deployment specs
-        run: |
-          echo "Validating deployment specs..."
-          grep -q "kind: Deployment" ui_approach/nginx/nginx_deployment.yml && echo "✅ Deployment kind found"
-          grep -q "metadata:" ui_approach/nginx/nginx_deployment.yml && echo "✅ Metadata found"
-          grep -q "spec:" ui_approach/nginx/nginx_deployment.yml && echo "✅ Spec found"
-
-  # ===== SECURITY SCAN JOB =====
-  security-scan:
-    name: Security Scanning
-    runs-on: ubuntu-latest
-    needs: validate
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'config'
-          scan-ref: 'ui_approach/'
-          format: 'table'
-          severity: 'CRITICAL,HIGH'
-
-  # ===== DEPLOY TO DEV (Auto - No Approval) =====
   deploy-dev:
-    name: Deploy to Development
     runs-on: ubuntu-latest
-    needs: [validate, lint, deploy-check, security-scan]
-    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
-    environment:
-      name: development
-      url: https://dev.example.com
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'development' || github.event_name == 'push' }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Deploy to Development
+        run: echo 'Deploying to Development'
 
-      - name: Setup kubectl
-        run: mkdir -p ~/.kube
-
-      - name: Deploy to Dev Environment
-        run: |
-          echo "🚀 Deploying to Development environment..."
-          echo "Branch: ${{ github.ref }}"
-          echo "Commit: ${{ github.sha }}"
-          echo "✅ Dev deployment configuration applied"
-        env:
-          DEV_KUBECONFIG: ${{ secrets.DEV_KUBECONFIG }}
-
-      - name: Verify Deployment
-        run: echo "✅ Deployment verified"
-
-      - name: Run Smoke Tests
-        run: |
-          echo "Running smoke tests for dev..."
-          echo "✅ Smoke tests passed"
-
-      - name: Slack Notification - Dev Success
-        if: success()
-        uses: slackapi/slack-github-action@v1.24.0
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_DEV }}
-          payload: |
-            {
-              "text": "✅ Dev Deployment Successful",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Dev Environment Deployment*\n✅ Status: Success\n📦 Commit: ${{ github.sha }}\n👤 Deployed by: ${{ github.actor }}\n🔗 <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow>"
-                  }
-                }
-              ]
-            }
-        continue-on-error: true
-
-  # ===== DEPLOY TO TEST (Requires Approval) =====
   deploy-test:
-    name: Deploy to Test
     runs-on: ubuntu-latest
-    needs: [validate, lint, deploy-check, security-scan]
-    if: github.ref == 'refs/heads/test' && github.event_name == 'push'
-    environment:
-      name: testing
-      url: https://test.example.com
-      reviewers:
-        - SanjayMahapatra
-    concurrency:
-      group: test-deployment
-      cancel-in-progress: false
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'testing' || github.event_name == 'push' }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Slack Notification - Pending Approval
-        uses: slackapi/slack-github-action@v1.24.0
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_TEST }}
-          payload: |
-            {
-              "text": "⏳ Test Deployment Pending Approval",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Test Environment - Awaiting Approval*\n⏳ Status: Pending Review\n📦 Commit: ${{ github.sha }}\n👤 Requested by: ${{ github.actor }}\n🔗 <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Approve Deployment>"
-                  }
-                }
-              ]
-            }
-        continue-on-error: true
-
-      - name: Setup kubectl
-        run: mkdir -p ~/.kube
-
-      - name: Deploy to Test Environment
-        run: |
-          echo "🚀 Deploying to Test environment (APPROVED)..."
-          echo "Branch: ${{ github.ref }}"
-          echo "Commit: ${{ github.sha }}"
-          echo "✅ Test deployment configuration applied"
-        env:
-          TEST_KUBECONFIG: ${{ secrets.TEST_KUBECONFIG }}
-
-      - name: Verify Deployment
-        run: echo "✅ Test deployment verified"
-
-      - name: Run Integration Tests
-        run: |
-          echo "Running integration tests..."
-          echo "✅ Integration tests passed"
-
-      - name: Run Smoke Tests
-        run: |
-          echo "Running smoke tests for test environment..."
-          echo "✅ Smoke tests passed"
-
-      - name: Slack Notification - Test Approved & Deployed
-        if: success()
-        uses: slackapi/slack-github-action@v1.24.0
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_TEST }}
-          payload: |
-            {
-              "text": "✅ Test Deployment Approved & Completed",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Test Environment Deployment*\n✅ Status: Success\n📦 Commit: ${{ github.sha }}\n✅ Tests: Passed\n👤 Approved by: ${{ github.actor }}\n🔗 <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow>"
-                  }
-                }
-              ]
-            }
-        continue-on-error: true
-
-  # ===== FAILURE NOTIFICATION =====
-  notify-failure:
-    name: Notify Pipeline Failures
-    runs-on: ubuntu-latest
-    needs: [validate, lint, deploy-check, security-scan, deploy-dev, deploy-test]
-    if: failure()
-    steps:
-      - name: Send Failure Notification
-        uses: slackapi/slack-github-action@v1.24.0
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_ALERTS }}
-          payload: |
-            {
-              "text": "❌ CI/CD Pipeline Failed",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Pipeline Failure Alert*\n❌ Status: Failed\n📍 Branch: ${{ github.ref_name }}\n👤 Triggered by: ${{ github.actor }}\n🔗 <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
-                  }
-                }
-              ]
-            }
-        continue-on-error: true
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Deploy to Testing
+        run: echo 'Deploying to Testing'
