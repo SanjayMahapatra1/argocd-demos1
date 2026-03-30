@@ -1,60 +1,27 @@
----
-name: Nginx Deployment CI
-
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-
-jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up YAML validation
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y yamllint
-
-      - name: Validate YAML syntax
-        run: yamllint ui_approach/nginx/nginx_deployment.yml
-
-      - name: Set up kubeval
-        run: |
-          wget \
-            https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
-          tar xf kubeval-linux-amd64.tar.gz
-          sudo mv kubeval /usr/local/bin/
-
-      - name: Validate Kubernetes manifest
-        run: kubeval ui_approach/nginx/nginx_deployment.yml
-
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run kube-linter
-        uses: stackrox/kube-linter-action@v1
-        with:
-          directory: ui_approach/nginx/
-          config: .kube-linter.yml
-        continue-on-error: true
-
-  deploy-check:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Dry-run deployment
-        run: |
-          # This can be used to verify deployment configuration
-          echo "Deployment configuration valid"
-          cat ui_approach/nginx/nginx_deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "250m"
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
