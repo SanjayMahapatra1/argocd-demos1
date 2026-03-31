@@ -31,12 +31,12 @@ jobs:
 
       # 🔹 SonarQube Scan
       - name: SonarQube Scan
-        run: |
-          sonar-scanner \
-            -Dsonar.projectKey=nginx-app \
-            -Dsonar.sources=. \
-            -Dsonar.host.url=http://18.161.216.127:9000 \
-            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+        uses: SonarSource/sonarqube-scan-action@master
+        env:
+          SONAR_HOST_URL: http://18.161.216.127:9000
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: -Dsonar.projectKey=nginx-app
 
       # 🔹 Install Trivy
       - name: Install Trivy
