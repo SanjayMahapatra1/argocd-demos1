@@ -16,10 +16,56 @@ on:
     branches:
       - main
 
+env:
+  DOCKER_REPO: <your-dockerhub-username>/nginx
+
 jobs:
+
+# 🔹 Build + Scan Job
+  build-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # 🔹 SonarQube Scan
+      - name: SonarQube Scan
+        run: |
+          sonar-scanner \
+            -Dsonar.projectKey=nginx-app \
+            -Dsonar.sources=. \
+            -Dsonar.host.url=http://18.161.216.127:9000 \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+
+      # 🔹 Install Trivy
+      - name: Install Trivy
+        run: |
+          wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.50.0_Linux-64bit.deb
+          sudo dpkg -i trivy_0.50.0_Linux-64bit.deb
+
+      # 🔹 Trivy Filesystem Scan
+      - name: Trivy FS Scan
+        run: trivy fs .
+
+      # 🔹 Docker Build
+      - name: Build Docker Image
+        run: docker build -t $DOCKER_REPO:${{ github.run_number }} .
+
+      # 🔹 Trivy Image Scan
+      - name: Trivy Image Scan
+        run: trivy image $DOCKER_REPO:${{ github.run_number }}
+
+      # 🔹 Docker Push
+      - name: Docker Login
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Docker Push
+        run: docker push $DOCKER_REPO:${{ github.run_number }}
 
 # 🔹 DEV Deployment
   deploy-dev:
+    needs: build-scan
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'development') }}
 
@@ -32,6 +78,7 @@ jobs:
 
 # 🔹 TEST Deployment
   deploy-test:
+    needs: build-scan
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'testing' }}
 
