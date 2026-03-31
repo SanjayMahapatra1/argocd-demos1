@@ -7,28 +7,37 @@ on:
         description: 'Select environment'
         required: true
         default: 'development'
+        type: choice
         options:
           - development
           - testing
+
   push:
     branches:
       - main
 
 jobs:
+
+# 🔹 DEV Deployment
   deploy-dev:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'development' || github.event_name == 'push' }}
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'development') }}
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
-      - name: Deploy to Development
-        run: echo 'Deploying to Development'
+        uses: actions/checkout@v3
 
+      - name: Deploy to Development
+        run: echo "Deploying to Development"
+
+# 🔹 TEST Deployment
   deploy-test:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'testing' || github.event_name == 'push' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'testing' }}
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
+
       - name: Deploy to Testing
-        run: echo 'Deploying to Testing'
+        run: echo "Deploying to Testing"
